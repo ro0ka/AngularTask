@@ -1,0 +1,79 @@
+using Microsoft.AspNetCore.Mvc;
+using ServerApp.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Linq;
+using System.Collections.Generic;
+using ServerApp.Models.BindingTargets;
+using System.Text.Json;
+using System.Reflection;
+using System.ComponentModel;
+
+namespace ServerApp.Controllers {
+
+    [Route("api/products")]
+    [ApiController]
+    public class ProductValuesController : Controller {
+        private DataContext context;
+
+        public ProductValuesController(DataContext ctx) {
+            context = ctx;
+        }
+
+        [HttpGet("{id}")]
+        public Product GetProduct(long id) {      
+            Product result = context.Products
+                .Include(p => p.Ratings)
+                .FirstOrDefault(p => p.ProductId == id);
+
+
+            if (result != null) {
+           
+                if (result.Ratings != null) {
+                    foreach (Rating r in result.Ratings) {
+                        r.Product = null;
+                    }
+                } 
+            }
+            return result;
+        }
+
+        [HttpGet]
+        public IActionResult GetProducts(string category, string search,
+                bool related = false, bool metadata = false) {
+            IQueryable<Product> query = context.Products;
+
+            if (!string.IsNullOrWhiteSpace(category)) {
+                string catLower = category.ToLower();
+                query = query.Where(p => p.Category.ToLower().Contains(catLower));
+            }
+            if (!string.IsNullOrWhiteSpace(search)) {
+                string searchLower = search.ToLower();
+                query = query.Where(p => p.Name.ToLower().Contains(searchLower)
+                    || p.Description.ToLower().Contains(searchLower));
+            }
+
+            if (related) {
+                query = query.Include(p => p.Ratings);
+                List<Product> data = query.ToList();
+                data.ForEach(p => {
+                    
+                    if (p.Ratings != null) {
+                        p.Ratings.ForEach(r => r.Product = null);
+                    }
+                });
+                return metadata ? CreateMetadata(data) : Ok(data);
+            } else {
+                return metadata ? CreateMetadata(query) : Ok(query);
+            }
+        }
+
+        private IActionResult CreateMetadata(IEnumerable<Product> products) {
+            return Ok(new {
+                data = products,
+                categories = context.Products.Select(p => p.Category)
+                    .Distinct().OrderBy(c => c)
+            });
+        }
+
+    }
+}
